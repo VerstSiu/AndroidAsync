@@ -7,6 +7,7 @@ import android.util.Log;
 import com.koushikdutta.async.callback.CompletedCallback;
 import com.koushikdutta.async.callback.ConnectCallback;
 import com.koushikdutta.async.callback.ListenCallback;
+import com.koushikdutta.async.dns.Dns;
 import com.koushikdutta.async.future.Cancellable;
 import com.koushikdutta.async.future.Future;
 import com.koushikdutta.async.future.FutureCallback;
@@ -440,13 +441,73 @@ public class AsyncServer {
     };
 
     private static ExecutorService synchronousResolverWorkers = newSynchronousWorkers("AsyncServer-resolver-");
+
+    /* <>-<>-<>-<>-<>-<>-<>-<>-<>-<> dns cache :begin <>-<>-<>-<>-<>-<>-<>-<>-<>-<> */
+
+    /**
+     * Dns cache.
+     *
+     * @author verstsiu@126.com 2018/04/16
+     */
+    public interface DnsCache {
+        /**
+         * Returns all parsed host internet address or null if cache not ready.
+         *
+         * <p>This method may cost lots of time to execute.</p>
+         *
+         * @param host host.
+         */
+        InetAddress[] getAllByName(String host);
+    }
+
+    private static DnsCache dnsCache;
+
+    /**
+     * Set dns cache.
+     *
+     * @param cache dns cache.
+     */
+    public static void setDnsCache(DnsCache cache) {
+        dnsCache = cache;
+    }
+
+    /**
+     * Returns dns cache instance.
+     */
+    public static DnsCache getDnsCache() {
+        return dnsCache;
+    }
+
+    /**
+     * Returns cached internet address.
+     *
+     * @param host host.
+     */
+    private InetAddress[] getCachedInetAddress(final String host) {
+        DnsCache cache = dnsCache;
+
+        if (host == null || host.isEmpty() || cache == null) {
+            return null;
+        }
+        return cache.getAllByName(host);
+    }
+
+    /* <>-<>-<>-<>-<>-<>-<>-<>-<>-<> dns cache :end <>-<>-<>-<>-<>-<>-<>-<>-<>-<> */
+
     public Future<InetAddress[]> getAllByName(final String host) {
         final SimpleFuture<InetAddress[]> ret = new SimpleFuture<InetAddress[]>();
         synchronousResolverWorkers.execute(new Runnable() {
             @Override
             public void run() {
                 try {
-                    final InetAddress[] result = InetAddress.getAllByName(host);
+                    final InetAddress[] cachedResult = getCachedInetAddress(host);
+                    final InetAddress[] result;
+
+                    if (cachedResult == null || cachedResult.length == 0) {
+                        result = InetAddress.getAllByName(host);
+                    } else {
+                        result = cachedResult;
+                    }
                     Arrays.sort(result, ipSorter);
                     if (result == null || result.length == 0)
                         throw new HostnameResolutionException("no addresses for host");
